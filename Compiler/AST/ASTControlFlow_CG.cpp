@@ -104,7 +104,7 @@ void ASTErrorHandler::generate(FunctionCodeGenerator *fg) const {
 
     fg->builder().SetInsertPoint(errorBlock);
     tom.releaseTemporaryObjects(fg, false, value_->producesTemporaryObject());
-    fg->setVariable(errorVar_, fg->builder().CreateLoad(errorDest));
+    fg->setVariable(errorVar_, fg->builder().CreateLoad(errorDest->getType()->getPointerElementType(), errorDest));
     errorBlock_.generate(fg);
     if (!errorBlock_.returnedCertainly()) {
         fg->builder().CreateBr(afterBlock);

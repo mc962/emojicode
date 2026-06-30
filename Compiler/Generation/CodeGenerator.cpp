@@ -25,7 +25,8 @@
 #include <llvm/IR/IRPrintingPasses.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Support/FileSystem.h>
-#include <llvm/Support/TargetRegistry.h>
+#include <llvm/MC/TargetRegistry.h>
+#include <llvm/Support/Host.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Target/TargetMachine.h>
@@ -115,7 +116,7 @@ void CodeGenerator::emit(bool ir, const std::string &outPath) {
     pass.add(llvm::createVerifierPass(false));
 
     std::error_code errorCode;
-    llvm::raw_fd_ostream dest(outPath, errorCode, llvm::sys::fs::F_None);
+    llvm::raw_fd_ostream dest(outPath, errorCode, llvm::sys::fs::OF_None);
 
     if (ir) {
         pass.add(llvm::createPromoteMemoryToRegisterPass());
@@ -123,7 +124,7 @@ void CodeGenerator::emit(bool ir, const std::string &outPath) {
         pass.add(llvm::createPrintModulePass(dest));
     }
     else {
-        auto fileType = llvm::TargetMachine::CGFT_ObjectFile;
+        auto fileType = llvm::CGFT_ObjectFile;
         if (targetMachine_->addPassesToEmitFile(pass, dest, nullptr, fileType)) {
             throw std::domain_error("TargetMachine can't emit a file of this type");
         }
@@ -252,12 +253,15 @@ void CodeGenerator::addParamAttrs(const Parameter &param, size_t index, llvm::Fu
 void CodeGenerator::addParamDereferenceable(const Type &type, size_t index, llvm::Function *function, bool ret) {
     if (typeHelper_.isDereferenceable(type)) {
         auto llvmType = typeHelper_.llvmTypeFor(type);
-        auto elementType = llvm::dyn_cast<llvm::PointerType>(llvmType)->getElementType();
+        auto elementType = llvm::dyn_cast<llvm::PointerType>(llvmType)->getPointerElementType();
         if (ret) {
-            function->addDereferenceableAttr(0, querySize(elementType));
+            function->addAttributeAtIndex(llvm::AttributeList::ReturnIndex,
+                llvm::Attribute::getWithDereferenceableBytes(function->getContext(), querySize(elementType)));
         }
         else {
-            function->addParamAttrs(index, llvm::AttrBuilder().addDereferenceableAttr(querySize(elementType)));
+            llvm::AttrBuilder attrs(function->getContext());
+            attrs.addDereferenceableAttr(querySize(elementType));
+            function->addParamAttrs(index, attrs);
         }
     }
 }

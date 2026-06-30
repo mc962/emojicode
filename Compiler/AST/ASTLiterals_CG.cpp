@@ -68,7 +68,7 @@ Value* ASTCollectionLiteral::init(FunctionCodeGenerator *fg, std::vector<llvm::V
     CallCodeGenerator(fg, CallType::StaticDispatch).generate(value, type_, ASTArguments(position()),
                                                              initializer_, nullptr, args);
     handleResult(fg, nullptr, value);
-    return fg->builder().CreateLoad(value);
+    return fg->builder().CreateLoad(value->getType()->getPointerElementType(), value);
 }
 
 std::pair<llvm::Value *, llvm::Value *> EmojicodeCompiler::ASTCollectionLiteral::prepareValueArray(FunctionCodeGenerator *fg, llvm::Type *type, size_t count,

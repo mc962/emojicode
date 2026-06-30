@@ -24,9 +24,9 @@ RunTimeHelper::RunTimeHelper(CodeGenerator *generator) : generator_(generator) {
 void RunTimeHelper::declareRunTime() {
     alloc_ = declareRunTimeFunction("ejcAlloc", llvm::Type::getInt8PtrTy(generator_->context()),
                                     llvm::Type::getInt64Ty(generator_->context()));
-    alloc_->addAttribute(0, llvm::Attribute::NonNull);
+    alloc_->addRetAttr(llvm::Attribute::NonNull);
     alloc_->addFnAttr(llvm::Attribute::getWithAllocSizeArgs(generator_->context(), 0, llvm::Optional<unsigned>()));
-    alloc_->addAttribute(llvm::AttributeList::ReturnIndex, llvm::Attribute::NoAlias);
+    alloc_->addRetAttr(llvm::Attribute::NoAlias);
 
     panic_ = declareRunTimeFunction("ejcPanic", llvm::Type::getVoidTy(generator_->context()),
                                     llvm::Type::getInt8PtrTy(generator_->context()));
@@ -114,9 +114,9 @@ void RunTimeHelper::declareRunTime() {
     malloc_ = declareRunTimeFunction("malloc", llvm::Type::getInt8PtrTy(generator_->context()),
                                     llvm::Type::getInt64Ty(generator_->context()));
     malloc_->removeFnAttr(llvm::Attribute::NoRecurse);
-    malloc_->addAttribute(llvm::AttributeList::ReturnIndex, llvm::Attribute::NonNull);
+    malloc_->addRetAttr(llvm::Attribute::NonNull);
     malloc_->addFnAttr(llvm::Attribute::getWithAllocSizeArgs(generator_->context(), 0, llvm::Optional<unsigned>()));
-    malloc_->addAttribute(llvm::AttributeList::ReturnIndex, llvm::Attribute::NoAlias);
+    malloc_->addRetAttr(llvm::Attribute::NoAlias);
 
     free_ = declareRunTimeFunction("free", llvm::Type::getVoidTy(generator_->context()),
                                    llvm::Type::getInt8PtrTy(generator_->context()));

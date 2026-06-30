@@ -53,7 +53,7 @@ Value* ASTUnwrap::generateErrorUnwrap(FunctionCodeGenerator *fg) const {
     auto value = expr_->generate(fg);
     fg->createIfElseBranchCond(createExpectFalse(fg, isError(fg, errorDest)), [&]() {
         auto string = std::make_shared<ASTCGUTF8Literal>(position().toRuntimeString(), position());
-        CallCodeGenerator(fg, CallType::StaticDispatch).generate(fg->builder().CreateLoad(errorDest),
+        CallCodeGenerator(fg, CallType::StaticDispatch).generate(fg->builder().CreateLoad(errorDest->getType()->getPointerElementType(), errorDest),
                                                                  Type(fg->compiler()->sError),
                                                                  ASTArguments(position(), { string }),
                                                                  method_, nullptr);

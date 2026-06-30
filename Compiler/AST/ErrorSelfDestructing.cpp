@@ -57,7 +57,7 @@ llvm::Value* ErrorHandling::prepareErrorDestination(FunctionCodeGenerator *fg, A
 llvm::Value* ErrorHandling::isError(FunctionCodeGenerator *fg, llvm::Value *errorDestination) const {
     auto type = llvm::dyn_cast<llvm::PointerType>(errorDestination->getType()->getPointerElementType());
     auto null = llvm::ConstantPointerNull::get(type);
-    return fg->builder().CreateICmpNE(null, fg->builder().CreateLoad(errorDestination));
+    return fg->builder().CreateICmpNE(null, fg->builder().CreateLoad(errorDestination->getType()->getPointerElementType(), errorDestination));
 }
 
 }  // namespace EmojicodeCompiler

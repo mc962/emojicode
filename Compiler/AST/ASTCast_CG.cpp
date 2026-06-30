@@ -27,8 +27,8 @@ Value* ASTCast::generate(FunctionCodeGenerator *fg) const {
 }
 
 Value* getRtti(FunctionCodeGenerator *fg, Value *typeDescPtr) {
-    return fg->builder().CreateLoad(fg->builder().CreateConstInBoundsGEP2_32(fg->typeHelper().typeDescription(),
-                                                                             typeDescPtr, 0, 0), "rtti");
+    auto rttiGep = fg->builder().CreateConstInBoundsGEP2_32(fg->typeHelper().typeDescription(), typeDescPtr, 0, 0);
+    return fg->builder().CreateLoad(rttiGep->getType()->getPointerElementType(), rttiGep, "rtti");
 }
 
 Value* ASTCast::downcast(FunctionCodeGenerator *fg) const {
@@ -50,12 +50,14 @@ Value* ASTCast::downcast(FunctionCodeGenerator *fg) const {
 
 Value* ASTCast::boxInfo(FunctionCodeGenerator *fg, Value *box) const {
     if (expr_->expressionType().boxedFor().type() == TypeType::Protocol) {
-        auto protocolConPtr = fg->builder().CreateBitCast(fg->builder().CreateLoad(fg->buildGetBoxInfoPtr(box)),
+        auto boxInfoGepBC = fg->buildGetBoxInfoPtr(box);
+        auto protocolConPtr = fg->builder().CreateBitCast(fg->builder().CreateLoad(boxInfoGepBC->getType()->getPointerElementType(), boxInfoGepBC),
                                                           fg->typeHelper().protocolConformance()->getPointerTo());
-        return fg->builder().CreateLoad(fg->builder().CreateConstInBoundsGEP2_32(fg->typeHelper().protocolConformance(),
-                                                                                 protocolConPtr, 0, 2));
+        auto pcGep = fg->builder().CreateConstInBoundsGEP2_32(fg->typeHelper().protocolConformance(), protocolConPtr, 0, 2);
+        return fg->builder().CreateLoad(pcGep->getType()->getPointerElementType(), pcGep);
     }
-    return fg->builder().CreateLoad(fg->buildGetBoxInfoPtr(box));
+    auto bipBC2 = fg->buildGetBoxInfoPtr(box);
+    return fg->builder().CreateLoad(bipBC2->getType()->getPointerElementType(), bipBC2);
 }
 
 llvm::Function* ASTCast::kFunction = nullptr;
@@ -78,8 +80,8 @@ llvm::Function* ASTCast::getCastFunction(CodeGenerator *cg) {
     llvm::Argument* typeDescription = &*(it++), *box = &*(it++), *boxInfo = &*it;
 
     auto rtti = getRtti(&fg, typeDescription);
-    auto flag = fg.builder().CreateLoad(fg.builder().CreateConstInBoundsGEP2_32(fg.typeHelper().runTimeTypeInfo(),
-                                                                                rtti, 0, 2));
+    auto flagGep = fg.builder().CreateConstInBoundsGEP2_32(fg.typeHelper().runTimeTypeInfo(), rtti, 0, 2);
+    auto flag = fg.builder().CreateLoad(flagGep->getType()->getPointerElementType(), flagGep);
 
     auto valueType = fg.createBlock("valueType"), protocol = fg.createBlock("protocol"),
         klass = fg.createBlock("class"), finish = fg.createBlock("finishCast");
@@ -115,17 +117,19 @@ llvm::Value* checkGeneric(FunctionCodeGenerator *fg, llvm::Value *mainCheck, llv
                           llvm::Value *typeDescription, llvm::Value *box, llvm::Value *rtti) {
     return fg->createIfElsePhi(mainCheck, [&]{
         auto rttiType = fg->typeHelper().runTimeTypeInfo();
-        auto ownGeneric = fg->builder().CreateLoad(fg->builder().CreateConstInBoundsGEP2_32(rttiType, rtti, 0, 0));
+        auto ownGenericGep = fg->builder().CreateConstInBoundsGEP2_32(rttiType, rtti, 0, 0);
+        auto ownGeneric = fg->builder().CreateLoad(ownGenericGep->getType()->getPointerElementType(), ownGenericGep);
         return fg->createIfElsePhi(fg->builder().CreateIsNotNull(ownGeneric), [&] {
+            auto rtti1Gep = fg->builder().CreateConstInBoundsGEP2_32(rttiType, rtti, 0, 1);
             auto genericsOk = fg->builder().CreateCall(fg->generator()->runTime().checkGenericArgs(), {
                 genericArgs,
                 fg->builder().CreateConstInBoundsGEP1_32(fg->typeHelper().typeDescription(), typeDescription, 1),
                 ownGeneric,
-                fg->builder().CreateLoad(fg->builder().CreateConstInBoundsGEP2_32(rttiType, rtti, 0, 1))
+                fg->builder().CreateLoad(rtti1Gep->getType()->getPointerElementType(), rtti1Gep)
             });
-            return fg->builder().CreateSelect(genericsOk, fg->builder().CreateLoad(box),
+            return fg->builder().CreateSelect(genericsOk, fg->builder().CreateLoad(box->getType()->getPointerElementType(), box),
                                               fg->buildBoxWithoutValue());
-        }, [&] { return fg->builder().CreateLoad(box); });
+        }, [&] { return fg->builder().CreateLoad(box->getType()->getPointerElementType(), box); });
     }, [&] {
         return fg->buildBoxWithoutValue();
     });
@@ -145,9 +149,10 @@ Value* ASTCast::castToValueType(FunctionCodeGenerator *fg, Value *box, Value *ty
         return fg->builder().CreateBitCast(boxPtr, type);
     }, [&] {
         // remote value types have one level of indirection
-        return fg->builder().CreateLoad(fg->builder().CreateBitCast(boxPtr, type->getPointerTo()));
+        auto castBoxPtr = fg->builder().CreateBitCast(boxPtr, type->getPointerTo());
+        return fg->builder().CreateLoad(castBoxPtr->getType()->getPointerElementType(), castBoxPtr);
     });
-    auto argsPtr = fg->builder().CreateLoad(genericArgs);
+    auto argsPtr = fg->builder().CreateLoad(genericArgs->getType()->getPointerElementType(), genericArgs);
     auto tdPtr = fg->builder().CreateConstInBoundsGEP2_32(argsPtr->getType()->getPointerElementType(), argsPtr, 0, 1);
     return checkGeneric(fg, bi, tdPtr, 0, typeDescription, box, rtti);
 }
@@ -160,11 +165,13 @@ Value* ASTCast::castToClass(FunctionCodeGenerator *fg, Value *box, Value *typeDe
                                        fg->typeHelper().typeDescription()->getPointerTo());
 
     return fg->createIfElsePhi(isExpBoxInfo, [&]() -> llvm::Value* {
-        auto obj = fg->builder().CreateLoad(fg->buildGetBoxValuePtr(box, strct->getPointerTo()->getPointerTo()));
+        auto objBoxPtr2 = fg->buildGetBoxValuePtr(box, strct->getPointerTo()->getPointerTo());
+        auto obj = fg->builder().CreateLoad(objBoxPtr2->getType()->getPointerElementType(), objBoxPtr2);
         auto ci = fg->builder().CreateBitCast(rtti, fg->typeHelper().classInfo()->getPointerTo());
         auto inherits = fg->builder().CreateCall(fg->generator()->runTime().inheritsFrom(),
                                                  { fg->buildGetClassInfoFromObject(obj), ci });
-        auto genericArgs = fg->builder().CreateLoad(fg->builder().CreateConstInBoundsGEP2_32(strct, obj, 0, 2));
+        auto gaGep = fg->builder().CreateConstInBoundsGEP2_32(strct, obj, 0, 2);
+        auto genericArgs = fg->builder().CreateLoad(gaGep->getType()->getPointerElementType(), gaGep);
         return checkGeneric(fg, inherits, genericArgs, 2, typeDescription, box, rtti);
     }, [fg] {
         return fg->buildBoxWithoutValue();
@@ -176,10 +183,10 @@ Value* ASTCast::castToProtocol(FunctionCodeGenerator *fg, Value *box, Value *rtt
     auto confPtrTy = fg->typeHelper().protocolConformance()->getPointerTo();
     return fg->createIfElsePhi(fg->builder().CreateIsNotNull(conformance), [&] {
         auto boxCopy = fg->createEntryAlloca(fg->typeHelper().box());
-        fg->builder().CreateStore(fg->builder().CreateLoad(box), boxCopy);
+        fg->builder().CreateStore(fg->builder().CreateLoad(box->getType()->getPointerElementType(), box), boxCopy);
         auto infoPtr = fg->buildGetBoxInfoPtr(boxCopy);
         fg->builder().CreateStore(conformance, fg->builder().CreateBitCast(infoPtr, confPtrTy->getPointerTo()));
-        return fg->builder().CreateLoad(boxCopy);
+        return fg->builder().CreateLoad(boxCopy->getType()->getPointerElementType(), boxCopy);
     }, [&] {
         return fg->buildBoxWithoutValue();
     });

@@ -9,6 +9,7 @@
 #define ReferenceCountingPasses_hpp
 
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/Pass.h>
 #include "RunTimeHelper.hpp"
 #include <map>
 

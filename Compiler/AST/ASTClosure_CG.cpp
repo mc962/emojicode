@@ -92,7 +92,7 @@ llvm::Value* ASTClosure::storeCapturedVariables(FunctionCodeGenerator *fg, const
             if (capturedVar.type.isManaged() && fg->isManagedByReference(capturedVar.type)) {
                 fg->retain(variable, capturedVar.type);
             }
-            value = fg->builder().CreateLoad(variable);
+            value = fg->builder().CreateLoad(variable->getType()->getPointerElementType(), variable);
             if (capturedVar.type.isManaged() && !fg->isManagedByReference(capturedVar.type)) {
                 fg->retain(value, capturedVar.type);
             }
@@ -122,7 +122,7 @@ llvm::Function* ASTCallableBox::getRelease(CodeGenerator *cg) {
     auto capture = fg.builder().CreateBitCast(kRelease->args().begin(),
                                               fg.typeHelper().callableBoxCapture()->getPointerTo());
     auto callable = fg.builder().CreateConstInBoundsGEP2_32(fg.typeHelper().callableBoxCapture(), capture, 0, 2);
-    fg.release(fg.builder().CreateLoad(callable), Type(Type::noReturn(), {}, Type::noReturn()));
+    fg.release(fg.builder().CreateLoad(callable->getType()->getPointerElementType(), callable), Type(Type::noReturn(), {}, Type::noReturn()));
 
     fg.builder().CreateRetVoid();
     return kRelease;

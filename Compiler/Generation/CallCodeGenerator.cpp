@@ -56,7 +56,7 @@ llvm::Value *CallCodeGenerator::generate(llvm::Value *callee, const Type &type, 
                 auto conformanceType = fg()->typeHelper().protocolConformance();
                 auto ptr = fg()->builder().CreateBitCast(fg()->buildGetBoxInfoPtr(args.front()),
                                                          conformanceType->getPointerTo()->getPointerTo());
-                conformance = fg()->builder().CreateLoad(ptr);
+                conformance = fg()->builder().CreateLoad(ptr->getType()->getPointerElementType(), ptr);
             }
             return createDynamicProtocolDispatch(function, args, astArgs.genericArgumentTypes(), conformance);
         }
@@ -70,7 +70,8 @@ llvm::Value *CallCodeGenerator::generate(llvm::Value *callee, const Type &type, 
 
 llvm::Value* CallCodeGenerator::buildFindProtocolConformance(const std::vector<llvm::Value *> &args,
                                                              const Type &protocol) {
-    auto boxInfo = fg()->builder().CreateLoad(fg()->buildGetBoxInfoPtr(args.front()));
+    auto boxInfoGep73 = fg()->buildGetBoxInfoPtr(args.front());
+    auto boxInfo = fg()->builder().CreateLoad(boxInfoGep73->getType()->getPointerElementType(), boxInfoGep73);
     return fg()->buildFindProtocolConformance(args.front(), boxInfo, protocol.protocol()->rtti());
 }
 
@@ -111,9 +112,10 @@ llvm::Value *MultiprotocolCallCodeGenerator::generate(llvm::Value *callee, const
         auto mpt = fg()->typeHelper().multiprotocolConformance(calleeType);
         auto mp = fg()->builder().CreateBitCast(fg()->buildGetBoxInfoPtr(argsv.front()),
                                                 mpt->getPointerTo()->getPointerTo());
-        auto mpl = fg()->builder().CreateLoad(mp);
+        auto mpl = fg()->builder().CreateLoad(mp->getType()->getPointerElementType(), mp);
 
-        conformance = fg()->builder().CreateLoad(fg()->builder().CreateConstGEP2_32(mpt, mpl, 0, multiprotocolN));
+        auto mpGep = fg()->builder().CreateConstGEP2_32(mpt, mpl, 0, multiprotocolN);
+        conformance = fg()->builder().CreateLoad(mpGep->getType()->getPointerElementType(), mpGep);
     }
     return createDynamicProtocolDispatch(function, std::move(argsv), args.genericArgumentTypes(), conformance);
 }
@@ -123,7 +125,8 @@ llvm::Value *CallCodeGenerator::dispatchFromVirtualTable(Function *function, llv
                                                          const std::vector<Type> &genericArguments) {
     auto reification = function->reificationFor(genericArguments);
     auto id = fg()->int32(reification.vti());
-    auto dispatchedFunc = fg()->builder().CreateLoad(fg()->builder().CreateInBoundsGEP(virtualTable, id));
+    auto vtGep = fg()->builder().CreateInBoundsGEP(virtualTable->getType()->getPointerElementType(), virtualTable, id);
+    auto dispatchedFunc = fg()->builder().CreateLoad(vtGep->getType()->getPointerElementType(), vtGep);
 
     std::vector<llvm::Type *> argTypes = reification.functionType()->params();
     if (callType_ == CallType::DynamicProtocolDispatch) {
@@ -145,7 +148,7 @@ llvm::Value *CallCodeGenerator::createDynamicDispatch(Function *function, const 
                                                       const std::vector<Type> &genericArgs) {
     auto info = callType_ == CallType::DynamicDispatchOnType ? args.front() : fg()->buildGetClassInfoFromObject(args.front());
     auto tablePtr = fg()->builder().CreateConstInBoundsGEP2_32(fg_->typeHelper().classInfo(), info, 0, 1);
-    auto table = fg()->builder().CreateLoad(tablePtr, "table");
+    auto table = fg()->builder().CreateLoad(tablePtr->getType()->getPointerElementType(), tablePtr, "table");
     return dispatchFromVirtualTable(function, table, args, genericArgs);
 }
 
@@ -154,18 +157,18 @@ llvm::Value *CallCodeGenerator::createDynamicProtocolDispatch(Function *function
                                                               llvm::Value *conformance) {
     args.front() = getProtocolCallee(args, conformance);
 
-    auto table = fg()->builder().CreateLoad(fg()->builder().CreateConstGEP2_32(conformance->getType()->getPointerElementType(),
-                                                                               conformance, 0, 1), "table");
+    auto tableGep = fg()->builder().CreateConstGEP2_32(conformance->getType()->getPointerElementType(), conformance, 0, 1);
+    auto table = fg()->builder().CreateLoad(tableGep->getType()->getPointerElementType(), tableGep, "table");
     return dispatchFromVirtualTable(function, table, args, genericArgs);
 }
 
 llvm::Value *CallCodeGenerator::getProtocolCallee(std::vector<Value *> &args, llvm::Value *conformance) const {
     auto shouldLoadPtr = fg()->builder().CreateConstGEP2_32(fg()->typeHelper().protocolConformance(),
                                                             conformance, 0, 0);
-    return fg()->createIfElsePhi(fg()->builder().CreateLoad(shouldLoadPtr, "shouldLoad"), [this, &args]() {
+    return fg()->createIfElsePhi(fg()->builder().CreateLoad(shouldLoadPtr->getType()->getPointerElementType(), shouldLoadPtr, "shouldLoad"), [this, &args]() {
         auto type = llvm::Type::getInt8PtrTy(fg()->generator()->context())->getPointerTo();
         auto value = fg()->buildGetBoxValuePtr(args.front(), type);
-        return fg()->builder().CreateLoad(value);
+        return fg()->builder().CreateLoad(value->getType()->getPointerElementType(), value);
     }, [this, &args]() {
         return fg()->buildGetBoxValuePtr(args.front(), llvm::Type::getInt8PtrTy(fg()->generator()->context()));
     });

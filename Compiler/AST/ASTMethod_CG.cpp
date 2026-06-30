@@ -13,6 +13,7 @@
 #include "Generation/TypeDescriptionGenerator.hpp"
 #include "Functions/Function.hpp"
 #include "Types/TypeDefinition.hpp"
+#include <llvm/Support/Alignment.h>
 
 namespace EmojicodeCompiler {
 
@@ -37,21 +38,21 @@ Value* ASTMethod::generate(FunctionCodeGenerator *fg) const {
             case BuiltInType::DoubleInverse:
                 return fg->builder().CreateFNeg(v);
             case BuiltInType::Power:
-                return callIntrinsic(fg, llvm::Intrinsic::ID::pow, {v, args_.args()[0]->generate(fg)});
+                return callIntrinsic(fg, llvm::Intrinsic::pow, {v, args_.args()[0]->generate(fg)});
             case BuiltInType::Log2:
-                return callIntrinsic(fg, llvm::Intrinsic::ID::log2, v);
+                return callIntrinsic(fg, llvm::Intrinsic::log2, v);
             case BuiltInType::Log10:
-                return callIntrinsic(fg, llvm::Intrinsic::ID::log10, v);
+                return callIntrinsic(fg, llvm::Intrinsic::log10, v);
             case BuiltInType::Ln:
-                return callIntrinsic(fg, llvm::Intrinsic::ID::log, v);
+                return callIntrinsic(fg, llvm::Intrinsic::log, v);
             case BuiltInType::Ceil:
-                return callIntrinsic(fg, llvm::Intrinsic::ID::ceil, v);
+                return callIntrinsic(fg, llvm::Intrinsic::ceil, v);
             case BuiltInType::Floor:
-                return callIntrinsic(fg, llvm::Intrinsic::ID::floor, v);
+                return callIntrinsic(fg, llvm::Intrinsic::floor, v);
             case BuiltInType::Round:
-                return callIntrinsic(fg, llvm::Intrinsic::ID::round, v);
+                return callIntrinsic(fg, llvm::Intrinsic::round, v);
             case BuiltInType::DoubleAbs:
-                return callIntrinsic(fg, llvm::Intrinsic::ID::fabs, v);
+                return callIntrinsic(fg, llvm::Intrinsic::fabs, v);
             case BuiltInType::DoubleToInteger:
                 return fg->builder().CreateFPToSI(v, llvm::Type::getInt64Ty(fg->ctx()));
             case BuiltInType::BooleanNegate:
@@ -84,15 +85,15 @@ Value* ASTMethod::generate(FunctionCodeGenerator *fg) const {
                 return nullptr;
             }
             case BuiltInType::MemoryMove: {
-                fg->builder().CreateMemMove(buildAddOffsetAddress(fg, v, args_.args()[0]->generate(fg)), 0,
+                fg->builder().CreateMemMove(buildAddOffsetAddress(fg, v, args_.args()[0]->generate(fg)), llvm::MaybeAlign(),
                                             buildAddOffsetAddress(fg, args_.args()[1]->generate(fg),
-                                                                  args_.args()[2]->generate(fg)), 0,
+                                                                  args_.args()[2]->generate(fg)), llvm::MaybeAlign(),
                                             args_.args()[3]->generate(fg));
                 return nullptr;
             }
             case BuiltInType::MemorySet: {
                 fg->builder().CreateMemSet(buildAddOffsetAddress(fg, v, args_.args()[1]->generate(fg)),
-                                           args_.args()[0]->generate(fg), args_.args()[2]->generate(fg), 0);
+                                           args_.args()[0]->generate(fg), args_.args()[2]->generate(fg), llvm::MaybeAlign());
                 return nullptr;
             }
             case BuiltInType::Multiprotocol:
@@ -124,7 +125,7 @@ Value* ASTMethod::generate(FunctionCodeGenerator *fg) const {
 
 Value* ASTMethod::buildAddOffsetAddress(FunctionCodeGenerator *fg, llvm::Value *memory, llvm::Value *offset) const {
     auto addOffset = fg->builder().CreateAdd(offset, fg->sizeOf(llvm::Type::getInt8PtrTy(fg->ctx())));
-    return fg->builder().CreateGEP(memory, addOffset);
+    return fg->builder().CreateGEP(llvm::Type::getInt8Ty(fg->ctx()), memory, addOffset);
 }
 
 Value* ASTMethod::buildMemoryAddress(FunctionCodeGenerator *fg, llvm::Value *memory, llvm::Value *offset,

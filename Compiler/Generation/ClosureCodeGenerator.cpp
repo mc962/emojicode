@@ -38,7 +38,7 @@ void ClosureCodeGenerator::loadCapturedVariables(Value *value) {
     if (thunk_) {
         auto capture = builder().CreateBitCast(value, typeHelper().callableBoxCapture()->getPointerTo());
         auto callable = builder().CreateConstInBoundsGEP2_32(typeHelper().callableBoxCapture(), capture, 0, 2);
-        thisValue_ = builder().CreateLoad(callable);
+        thisValue_ = builder().CreateLoad(callable->getType()->getPointerElementType(), callable);
         return;
     }
 
@@ -46,17 +46,20 @@ void ClosureCodeGenerator::loadCapturedVariables(Value *value) {
 
     size_t index = 2;
     if (capture_.capturesSelf()) {
-        thisValue_ = builder().CreateLoad(builder().CreateConstInBoundsGEP2_32(capture_.type, captures, 0, index++));
+        auto selfGep = builder().CreateConstInBoundsGEP2_32(capture_.type, captures, 0, index++);
+        thisValue_ = builder().CreateLoad(selfGep->getType()->getPointerElementType(), selfGep);
     }
     if (escaping_) {
         for (auto &capture : capture_.captures) {
-            auto value = builder().CreateLoad(builder().CreateConstInBoundsGEP2_32(capture_.type, captures, 0, index++));
+            auto valGep = builder().CreateConstInBoundsGEP2_32(capture_.type, captures, 0, index++);
+            auto value = builder().CreateLoad(valGep->getType()->getPointerElementType(), valGep);
             setVariable(capture.captureId, value);
         }
     }
     else {
         for (auto &capture : capture_.captures) {
-            auto ptr = builder().CreateLoad(builder().CreateConstInBoundsGEP2_32(capture_.type, captures, 0, index++));
+            auto ptrGep = builder().CreateConstInBoundsGEP2_32(capture_.type, captures, 0, index++);
+            auto ptr = builder().CreateLoad(ptrGep->getType()->getPointerElementType(), ptrGep);
             scoper().getVariable(capture.captureId) = ptr;
         }
     }

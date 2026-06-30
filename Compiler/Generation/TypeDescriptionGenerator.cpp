@@ -6,6 +6,7 @@
 //
 
 #include "TypeDescriptionGenerator.hpp"
+#include <llvm/Support/Alignment.h>
 #include "Generation/LLVMTypeHelper.hpp"
 #include "Generation/FunctionCodeGenerator.hpp"
 #include "Types/Class.hpp"
@@ -74,7 +75,8 @@ llvm::Value* TypeDescriptionGenerator::extractTypeDescriptionPtr() {
     if (fg_->calleeType().is<TypeType::TypeAsValue>()) {
         return fg_->genericArgsPtr();
     }
-    auto ptr = fg_->builder().CreateLoad(fg_->genericArgsPtr());
+    auto gaptrPtr77 = fg_->genericArgsPtr();
+    auto ptr = fg_->builder().CreateLoad(gaptrPtr77->getType()->getPointerElementType(), gaptrPtr77);
     if (fg_->calleeType().is<TypeType::Class>()) {
         return fg_->builder().CreateExtractValue(ptr, 0);
     }
@@ -143,8 +145,8 @@ llvm::Value* TypeDescriptionGenerator::finish() {
 
     for (auto &tdv : types_) {
         if (tdv.isCopy()) {
-            fg_->builder().CreateMemCpy(current, 0, tdv.from, 0, fg_->builder().CreateMul(fg_->sizeOf(typeDesc), tdv.size));
-            current = fg_->builder().CreateInBoundsGEP(current, tdv.size);
+            fg_->builder().CreateMemCpy(current, llvm::MaybeAlign(), tdv.from, llvm::MaybeAlign(), fg_->builder().CreateMul(fg_->sizeOf(typeDesc), tdv.size));
+            current = fg_->builder().CreateInBoundsGEP(current->getType()->getPointerElementType(), current, tdv.size);
         }
         else {
             fg_->builder().CreateStore(tdv.concrete, current);

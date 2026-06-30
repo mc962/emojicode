@@ -30,7 +30,6 @@ void OptimizationManager::initialize(RunTimeHelper *runTime) {
         builder.populateFunctionPassManager(*functionPassManager_);
         builder.populateModulePassManager(*passManager_);
 
-        functionPassManager_->add(llvm::createInductiveRangeCheckEliminationPass());
         functionPassManager_->add(llvm::createLICMPass());
         functionPassManager_->doInitialization();
 

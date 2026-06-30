@@ -72,7 +72,7 @@ Value* ASTInitialization::generateInitValueType(FunctionCodeGenerator *fg) const
     CallCodeGenerator(fg, CallType::StaticDispatch)
             .generate(destination, typeExpr_->expressionType(), args_, initializer_, errorPointer(), suppl);
     handleResult(fg, nullptr, destination);
-    return vtDestination_ == nullptr ? fg->builder().CreateLoad(destination) : nullptr;
+    return vtDestination_ == nullptr ? fg->builder().CreateLoad(destination->getType()->getPointerElementType(), destination) : nullptr;
 }
 
 Value* ASTInitialization::initObject(FunctionCodeGenerator *fg, const ASTArguments &args, Function *function,
