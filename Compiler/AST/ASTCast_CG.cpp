@@ -22,8 +22,20 @@ Value* ASTCast::generate(FunctionCodeGenerator *fg) const {
     }
 
     auto box = expr_->generate(fg);
-    return fg->builder().CreateCall(getCastFunction(fg->generator()),
-                                    { typeExpr_->generate(fg), box, boxInfo(fg, box) });
+    auto result = fg->builder().CreateCall(getCastFunction(fg->generator()),
+                                           { typeExpr_->generate(fg), box, boxInfo(fg, box) });
+    // The cast reads its operand box by reference (the operand keeps its own reference) and dynamicCast returns a box
+    // that aliases the operand's managed value without retaining it. If this result is taken (e.g. stored into a
+    // variable that is released at the end of its scope) it becomes an independent owner and must be retained;
+    // otherwise the managed value would be released once for the operand and once for the result. When the result is
+    // only a temporary the existing MFForwarding behaviour keeps it balanced, so no retain is needed there.
+    if (!isTemporary() && expressionType().isManaged()) {
+        // retain() for a Box expects a pointer to the box (it indexes into the box), so materialise the value first.
+        auto tmp = fg->createEntryAlloca(fg->typeHelper().box());
+        fg->builder().CreateStore(result, tmp);
+        fg->retain(tmp, expressionType());
+    }
+    return result;
 }
 
 Value* getRtti(FunctionCodeGenerator *fg, Value *typeDescPtr) {
