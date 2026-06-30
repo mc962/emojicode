@@ -13,7 +13,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "-Ofast")
 add_compile_options(-pedantic-errors)
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-fcolor-diagnostics)
+  add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fcolor-diagnostics>)
 endif()
 
 if(defaultPackagesDirectory)

@@ -86,7 +86,7 @@ llvm::GlobalVariable* ProtocolsTableGenerator::createDispatchTable(const Type &t
                                                                    const ProtocolConformance &conformance,
                                                                    llvm::Constant *boxInfo) {
     auto &list = conformance.type->type().protocol()->methods().list();
-    auto arrayType = llvm::ArrayType::get(llvm::Type::getInt8PtrTy(generator_->context()), list.size());
+    auto arrayType = llvm::ArrayType::get(llvm::PointerType::getUnqual(generator_->context()), list.size());
 
     std::vector<llvm::Constant *> virtualTable;
     virtualTable.resize(list.size());

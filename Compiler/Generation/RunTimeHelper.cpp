@@ -15,21 +15,24 @@
 #include <llvm/IR/Function.h>
 #include <llvm/IR/GlobalValue.h>
 #include <llvm/IR/GlobalVariable.h>
+#include <llvm/IR/Attributes.h>
 #include <llvm/IR/Type.h>
+#include <llvm/Support/ModRef.h>
+#include <optional>
 
 namespace EmojicodeCompiler {
 
 RunTimeHelper::RunTimeHelper(CodeGenerator *generator) : generator_(generator) {}
 
 void RunTimeHelper::declareRunTime() {
-    alloc_ = declareRunTimeFunction("ejcAlloc", llvm::Type::getInt8PtrTy(generator_->context()),
+    alloc_ = declareRunTimeFunction("ejcAlloc", llvm::PointerType::getUnqual(generator_->context()),
                                     llvm::Type::getInt64Ty(generator_->context()));
     alloc_->addRetAttr(llvm::Attribute::NonNull);
-    alloc_->addFnAttr(llvm::Attribute::getWithAllocSizeArgs(generator_->context(), 0, llvm::Optional<unsigned>()));
+    alloc_->addFnAttr(llvm::Attribute::getWithAllocSizeArgs(generator_->context(), 0, std::optional<unsigned>()));
     alloc_->addRetAttr(llvm::Attribute::NoAlias);
 
     panic_ = declareRunTimeFunction("ejcPanic", llvm::Type::getVoidTy(generator_->context()),
-                                    llvm::Type::getInt8PtrTy(generator_->context()));
+                                    llvm::PointerType::getUnqual(generator_->context()));
     panic_->addFnAttr(llvm::Attribute::NoReturn);
     panic_->addFnAttr(llvm::Attribute::Cold);  // A program should panic rarely.
 
@@ -81,9 +84,10 @@ void RunTimeHelper::declareRunTime() {
     retain_ = declareMemoryRunTimeFunction("ejcRetain");
     retainMemory_ = declareMemoryRunTimeFunction("ejcRetainMemory");
     releaseMemory_ = declareMemoryRunTimeFunction("ejcReleaseMemory");
-    retain_->addFnAttr(llvm::Attribute::InaccessibleMemOrArgMemOnly);
-    retainMemory_->addFnAttr(llvm::Attribute::InaccessibleMemOrArgMemOnly);
-    releaseMemory_->addFnAttr(llvm::Attribute::InaccessibleMemOrArgMemOnly);
+    auto inaccessOrArgMem = llvm::Attribute::getWithMemoryEffects(generator_->context(), llvm::MemoryEffects::inaccessibleOrArgMemOnly());
+    retain_->addFnAttr(inaccessOrArgMem);
+    retainMemory_->addFnAttr(inaccessOrArgMem);
+    releaseMemory_->addFnAttr(inaccessOrArgMem);
 
     /// All of these call deinitializers and we cannot make any predictions about their memory usage
     release_ = declareMemoryRunTimeFunction("ejcRelease");
@@ -92,9 +96,9 @@ void RunTimeHelper::declareRunTime() {
     releaseLocal_ = declareMemoryRunTimeFunction("ejcReleaseLocal");
 
     isOnlyReference_ = declareRunTimeFunction("ejcIsOnlyReference", llvm::Type::getInt1Ty(generator_->context()),
-                                     llvm::Type::getInt8PtrTy(generator_->context()));
+                                     llvm::PointerType::getUnqual(generator_->context()));
     isOnlyReference_->addParamAttr(0, llvm::Attribute::NonNull);
-    isOnlyReference_->addParamAttr(0, llvm::Attribute::NoCapture);
+    isOnlyReference_->addParamAttr(0, llvm::Attribute::getWithCaptureInfo(generator_->context(), llvm::CaptureInfo::none()));
 
     ignoreBlock_ = new llvm::GlobalVariable(*generator_->module(), llvm::Type::getInt8Ty(generator_->context()), true,
                                             llvm::GlobalValue::LinkageTypes::ExternalLinkage, nullptr,
@@ -111,15 +115,15 @@ void RunTimeHelper::declareRunTime() {
     buildRetainRelease(Type(Type::noReturn(), {}, Type::noReturn()), "callable.boxRetain", "callable.boxRelease",
                        boxInfoCallables_);
 
-    malloc_ = declareRunTimeFunction("malloc", llvm::Type::getInt8PtrTy(generator_->context()),
+    malloc_ = declareRunTimeFunction("malloc", llvm::PointerType::getUnqual(generator_->context()),
                                     llvm::Type::getInt64Ty(generator_->context()));
     malloc_->removeFnAttr(llvm::Attribute::NoRecurse);
     malloc_->addRetAttr(llvm::Attribute::NonNull);
-    malloc_->addFnAttr(llvm::Attribute::getWithAllocSizeArgs(generator_->context(), 0, llvm::Optional<unsigned>()));
+    malloc_->addFnAttr(llvm::Attribute::getWithAllocSizeArgs(generator_->context(), 0, std::optional<unsigned>()));
     malloc_->addRetAttr(llvm::Attribute::NoAlias);
 
     free_ = declareRunTimeFunction("free", llvm::Type::getVoidTy(generator_->context()),
-                                   llvm::Type::getInt8PtrTy(generator_->context()));
+                                   llvm::PointerType::getUnqual(generator_->context()));
     free_->removeFnAttr(llvm::Attribute::NoRecurse);
     free_->addParamAttr(0, llvm::Attribute::NonNull);
 }
@@ -135,9 +139,9 @@ llvm::Function* RunTimeHelper::declareRunTimeFunction(const char *name, llvm::Ty
 
 llvm::Function* RunTimeHelper::declareMemoryRunTimeFunction(const char *name) {
     auto fn = declareRunTimeFunction(name, llvm::Type::getVoidTy(generator_->context()),
-                                     llvm::Type::getInt8PtrTy(generator_->context()));
+                                     llvm::PointerType::getUnqual(generator_->context()));
     fn->addParamAttr(0, llvm::Attribute::NonNull);
-    fn->addParamAttr(0, llvm::Attribute::NoCapture);
+    fn->addParamAttr(0, llvm::Attribute::getWithCaptureInfo(generator_->context(), llvm::CaptureInfo::none()));
     return fn;
 }
 

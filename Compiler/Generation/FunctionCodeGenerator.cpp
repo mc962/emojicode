@@ -16,8 +16,10 @@
 #include "Types/Class.hpp"
 #include "Types/ValueType.hpp"
 #include "Types/TypeContext.hpp"
+#include <llvm/IR/Attributes.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/DerivedTypes.h>
+#include <llvm/Support/ModRef.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Verifier.h>
 
@@ -114,14 +116,14 @@ void FunctionCodeGenerator::buildErrorReturn() {
     }
 }
 
-llvm::Value* FunctionCodeGenerator::sizeOfReferencedType(llvm::PointerType *ptrType) {
+llvm::Value* FunctionCodeGenerator::sizeOfReferencedType(llvm::Type *elementType) {
     auto one = llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx()), 1);
-    auto sizeg = builder().CreateGEP(ptrType->getElementType(), llvm::ConstantPointerNull::getNullValue(ptrType), one);
+    auto sizeg = builder().CreateGEP(elementType, llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(ctx())), one);
     return builder().CreatePtrToInt(sizeg, llvm::Type::getInt64Ty(ctx()));
 }
 
 llvm::Value* FunctionCodeGenerator::sizeOf(llvm::Type *type) {
-    return sizeOfReferencedType(type->getPointerTo());
+    return sizeOfReferencedType(type);
 }
 
 Value* FunctionCodeGenerator::buildGetBoxInfoPtr(Value *box) {
@@ -129,18 +131,17 @@ Value* FunctionCodeGenerator::buildGetBoxInfoPtr(Value *box) {
 }
 
 llvm::Value* FunctionCodeGenerator::buildGetClassInfoPtrFromObject(Value *object) {
-    return builder().CreateConstInBoundsGEP2_32(llvm::cast<llvm::PointerType>(object->getType())->getElementType(),
-                                                object, 0, 1); // classInfo*
+    return builder().CreateConstInBoundsGEP2_32(typeHelper().someobjectStruct(), object, 0, 1); // classInfo*
 }
 
 llvm::Value* FunctionCodeGenerator::buildGetClassInfoFromObject(llvm::Value *object) {
     auto classInfoPtrPtr = buildGetClassInfoPtrFromObject(object);
-    return builder().CreateLoad(classInfoPtrPtr->getType()->getPointerElementType(), classInfoPtrPtr, "info");
+    return builder().CreateLoad(llvm::PointerType::getUnqual(ctx()), classInfoPtrPtr, "info");
 }
 
 llvm::Value* FunctionCodeGenerator::buildHasNoValueBoxPtr(llvm::Value *box) {
     auto boxInfoGep = buildGetBoxInfoPtr(box);
-    return builder().CreateIsNull(builder().CreateLoad(boxInfoGep->getType()->getPointerElementType(), boxInfoGep));
+    return builder().CreateIsNull(builder().CreateLoad(llvm::PointerType::getUnqual(ctx()), boxInfoGep));
 }
 
 llvm::Value* FunctionCodeGenerator::buildHasNoValueBox(llvm::Value *box) {
@@ -166,16 +167,16 @@ Value* FunctionCodeGenerator::buildOptionalHasValuePtr(llvm::Value *simpleOption
     if (type.storageType() == StorageType::PointerOptional) {
         return builder().CreateIsNotNull(simpleOptional);
     }
-    auto ptype = llvm::cast<llvm::PointerType>(simpleOptional->getType())->getElementType();
+    auto ptype = typeHelper().llvmTypeFor(type);
     auto gep0 = builder().CreateConstInBoundsGEP2_32(ptype, simpleOptional, 0, 0);
-    return builder().CreateLoad(gep0->getType()->getPointerElementType(), gep0);
+    return builder().CreateLoad(llvm::Type::getInt1Ty(ctx()), gep0);
 }
 
 Value* FunctionCodeGenerator::buildGetOptionalValuePtr(llvm::Value *simpleOptional, const Type &type) {
     if (type.storageType() == StorageType::PointerOptional) {
-        return builder().CreateLoad(simpleOptional->getType()->getPointerElementType(), simpleOptional);
+        return builder().CreateLoad(llvm::PointerType::getUnqual(ctx()), simpleOptional);
     }
-    auto ptype = llvm::cast<llvm::PointerType>(simpleOptional->getType())->getElementType();
+    auto ptype = typeHelper().llvmTypeFor(type);
     return builder().CreateConstInBoundsGEP2_32(ptype, simpleOptional, 0, 1);
 }
 
@@ -342,26 +343,24 @@ llvm::ConstantInt* FunctionCodeGenerator::int64(int64_t value) {
     return llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx()), value);
 }
 
-llvm::Value* FunctionCodeGenerator::alloc(llvm::PointerType *type) {
-    auto alloc = builder().CreateCall(generator()->runTime().alloc(), sizeOfReferencedType(type), "alloc");
-    return builder().CreateBitCast(alloc, type);
+llvm::Value* FunctionCodeGenerator::alloc(llvm::Type *elementType) {
+    return builder().CreateCall(generator()->runTime().alloc(), sizeOfReferencedType(elementType), "alloc");
 }
 
-llvm::Value* FunctionCodeGenerator::stackAlloc(llvm::PointerType *type) {
-    auto structType = llvm::StructType::get(llvm::Type::getInt64Ty(ctx()), type->getElementType());
+llvm::Value* FunctionCodeGenerator::stackAlloc(llvm::Type *elementType) {
+    auto structType = llvm::StructType::get(llvm::Type::getInt64Ty(ctx()), elementType);
     auto ptr = createEntryAlloca(structType);
 
     builder().CreateStore(int64(1), builder().CreateConstInBoundsGEP2_32(structType, ptr, 0, 0));
     auto object = builder().CreateConstInBoundsGEP2_32(structType, ptr, 0, 1);
-    auto controlBlockField = builder().CreateConstInBoundsGEP2_32(type->getElementType(), object, 0, 0);
-    builder().CreateStore(llvm::ConstantPointerNull::get(llvm::Type::getInt8PtrTy(ctx())),
+    auto controlBlockField = builder().CreateConstInBoundsGEP2_32(elementType, object, 0, 0);
+    builder().CreateStore(llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(ctx())),
                           controlBlockField);
     return object;
 }
 
-llvm::Value* FunctionCodeGenerator::managableGetValuePtr(llvm::Value *managablePtr) {
-    auto elementType = llvm::dyn_cast<llvm::PointerType>(managablePtr->getType())->getElementType();
-    return builder().CreateConstInBoundsGEP2_32(elementType, managablePtr, 0, 1);
+llvm::Value* FunctionCodeGenerator::managableGetValuePtr(llvm::Value *managablePtr, llvm::StructType *managableType) {
+    return builder().CreateConstInBoundsGEP2_32(managableType, managablePtr, 0, 1);
 }
 
 llvm::Value* FunctionCodeGenerator::createEntryAlloca(llvm::Type *type, const llvm::Twine &name) {
@@ -387,7 +386,7 @@ void TemporaryObjectsManager::releaseTemporaryObjects(FunctionCodeGenerator *fg,
 void FunctionCodeGenerator::release(llvm::Value *value, const Type &otype) {
     auto type = otype.resolveOnSuperArgumentsAndConstraints(*typeContext_);
     if (type.type() == TypeType::Class || type.type() == TypeType::Someobject) {
-        auto opc = builder().CreateBitCast(value, llvm::Type::getInt8PtrTy(ctx()));
+        auto opc = builder().CreateBitCast(value, llvm::PointerType::getUnqual(ctx()));
         builder().CreateCall(generator()->runTime().release(), opc);
     }
     else if (type.type() == TypeType::ValueType && type.valueType() == compiler()->sMemory) {
@@ -410,7 +409,7 @@ void FunctionCodeGenerator::release(llvm::Value *value, const Type &otype) {
     }
     else if (type.type() == TypeType::Box) {
         auto boxInfoGep409 = buildGetBoxInfoPtr(value);
-        auto boxInfo = builder().CreateLoad(boxInfoGep409->getType()->getPointerElementType(), boxInfoGep409);
+        auto boxInfo = builder().CreateLoad(llvm::PointerType::getUnqual(ctx()), boxInfoGep409);
         if (type.unboxed().type() == TypeType::Optional || type.unboxed().type() == TypeType::Something) {
             auto null = llvm::ConstantPointerNull::get(typeHelper().boxInfo()->getPointerTo());
             createIf(builder().CreateICmpNE(boxInfo, null), [&] {
@@ -429,7 +428,7 @@ void FunctionCodeGenerator::release(llvm::Value *value, const Type &otype) {
 void FunctionCodeGenerator::retain(llvm::Value *value, const Type &otype) {
     auto type = otype.resolveOnSuperArgumentsAndConstraints(*typeContext_);
     if (type.type() == TypeType::Class || type.type() == TypeType::Someobject) {
-        auto opc = builder().CreateBitCast(value, llvm::Type::getInt8PtrTy(ctx()));
+        auto opc = builder().CreateBitCast(value, llvm::PointerType::getUnqual(ctx()));
         builder().CreateCall(generator()->runTime().retain(), { opc });
     }
     else if (type.type() == TypeType::ValueType && type.valueType() == compiler()->sMemory) {
@@ -455,7 +454,7 @@ void FunctionCodeGenerator::retain(llvm::Value *value, const Type &otype) {
     }
     else if (type.type() == TypeType::Box) {
         auto boxInfoGep453 = buildGetBoxInfoPtr(value);
-        auto boxInfo = builder().CreateLoad(boxInfoGep453->getType()->getPointerElementType(), boxInfoGep453);
+        auto boxInfo = builder().CreateLoad(llvm::PointerType::getUnqual(ctx()), boxInfoGep453);
         if (type.unboxed().type() == TypeType::Optional || type.unboxed().type() == TypeType::Something) {
             auto null = llvm::ConstantPointerNull::get(typeHelper().boxInfo()->getPointerTo());
             createIf(builder().CreateICmpNE(boxInfo, null), [&] {
@@ -477,10 +476,10 @@ void FunctionCodeGenerator::manageBox(bool retain, llvm::Value *boxInfo, llvm::V
     else {
         fnPtr = builder().CreateConstInBoundsGEP2_32(typeHelper().boxInfo(), boxInfo, 0, retain ? 1 : 2);
     }
-    auto fn = builder().CreateLoad(fnPtr->getType()->getPointerElementType(), fnPtr, retain ? "retain" : "release");
-    auto fnType = llvm::cast<llvm::FunctionType>(fn->getType()->getPointerElementType());
+    auto fn = builder().CreateLoad(llvm::PointerType::getUnqual(ctx()), fnPtr, retain ? "retain" : "release");
+    auto fnType = typeHelper().boxRetainRelease();
     auto call = builder().CreateCall(fnType, fn, {value});
-    call->addParamAttr(0, llvm::Attribute::NoCapture);
+    call->addParamAttr(0, llvm::Attribute::getWithCaptureInfo(ctx(), llvm::CaptureInfo::none()));
     call->addParamAttr(0, llvm::Attribute::ReadOnly);
     call->addFnAttr(llvm::Attribute::NoUnwind);
 }
@@ -491,7 +490,7 @@ bool FunctionCodeGenerator::isManagedByReference(const Type &type) const {
 }
 
 void FunctionCodeGenerator::releaseByReference(llvm::Value *ptr, const Type &type) {
-    release(isManagedByReference(type) ? ptr : builder().CreateLoad(ptr->getType()->getPointerElementType(), ptr), type);
+    release(isManagedByReference(type) ? ptr : builder().CreateLoad(typeHelper().llvmTypeFor(type), ptr), type);
 }
 
 llvm::Value* FunctionCodeGenerator::buildFindProtocolConformance(llvm::Value *box, llvm::Value *boxInfo,
@@ -500,13 +499,13 @@ llvm::Value* FunctionCodeGenerator::buildFindProtocolConformance(llvm::Value *bo
                                               typeHelper().boxInfo()->getPointerTo());
     auto conformanceEntries = createIfElsePhi(builder().CreateICmpEQ(boxInfo, objBoxInfo), [&]() {
         auto objBoxPtr = buildGetBoxValuePtr(box, typeHelper().someobject()->getPointerTo());
-        auto obj = builder().CreateLoad(objBoxPtr->getType()->getPointerElementType(), objBoxPtr);
+        auto obj = builder().CreateLoad(llvm::PointerType::getUnqual(ctx()), objBoxPtr);
         auto classInfo = buildGetClassInfoFromObject(obj);
         auto classInfoGep = builder().CreateConstInBoundsGEP2_32(typeHelper().classInfo(), classInfo, 0, 2);
-        return builder().CreateLoad(classInfoGep->getType()->getPointerElementType(), classInfoGep);
+        return builder().CreateLoad(llvm::PointerType::getUnqual(ctx()), classInfoGep);
     }, [&] {
         auto conformanceEntriesPtr = builder().CreateConstInBoundsGEP2_32(typeHelper().boxInfo(), boxInfo, 0, 3);
-        return builder().CreateLoad(conformanceEntriesPtr->getType()->getPointerElementType(), conformanceEntriesPtr);
+        return builder().CreateLoad(llvm::PointerType::getUnqual(ctx()), conformanceEntriesPtr);
     });
 
     return builder().CreateCall(generator()->runTime().findProtocolConformance(),
@@ -517,7 +516,7 @@ llvm::Value* FunctionCodeGenerator::instanceVariablePointer(size_t id) {
     auto callee = typeContext_->calleeType();
     auto offset = callee.type() != TypeType::NoReturn ? (callee.type() == TypeType::Class ? 2 : 0) +
                     (callee.typeDefinition()->storesGenericArgs() ? 1 : 0) : 0;
-    auto type = llvm::cast<llvm::PointerType>(thisValue()->getType())->getElementType();
+    auto type = typeHelper().llvmStructTypeFor(callee);
     return builder().CreateConstInBoundsGEP2_32(type, thisValue(), 0, offset + id);
 }
 
@@ -528,7 +527,7 @@ llvm::Value* FunctionCodeGenerator::genericArgsPtr() {
 
     auto callee = typeContext_->calleeType();
     assert(callee.typeDefinition()->storesGenericArgs());
-    auto type = llvm::cast<llvm::PointerType>(thisValue()->getType())->getElementType();
+    auto type = typeHelper().llvmStructTypeFor(callee);
     return builder().CreateConstInBoundsGEP2_32(type, thisValue(), 0, callee.type() == TypeType::Class ? 2 : 0);
 }
 

@@ -11,7 +11,7 @@
 namespace EmojicodeCompiler {
 
 llvm::Value* MFHeapAutoAllocates::allocate(FunctionCodeGenerator *fg, llvm::Type *type) const {
-   return stack_ ? fg->stackAlloc(type->getPointerTo()) : fg->alloc(type->getPointerTo());
+   return stack_ ? fg->stackAlloc(type) : fg->alloc(type);
 }
 
 void MFHeapAutoAllocates::analyseAllocation(MFFlowCategory type) {

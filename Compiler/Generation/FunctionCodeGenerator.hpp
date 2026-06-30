@@ -85,10 +85,10 @@ public:
     /// @returns The number of bytes an instance of @c type takes up in memory.
     /// @see sizeOfReferencedType
     llvm::Value* sizeOf(llvm::Type *type);
-    /// @returns The number of bytes an instance of the type pointed to by a pointer of @c ptrType takes up.
-    ///          Behaves like `sizeOf(ptrType->getElementType())`, although this method does not call sizeOf().
+    /// @returns The number of bytes an instance of @c elementType takes up in memory.
+    ///          Takes the element type directly (not a pointer to it).
     /// @see sizeOf
-    llvm::Value* sizeOfReferencedType(llvm::PointerType *ptrType);
+    llvm::Value* sizeOfReferencedType(llvm::Type *elementType);
 
     /// Gets a pointer to the box info field of a box.
     /// @param box Pointer to a box.
@@ -145,11 +145,11 @@ public:
 
     /// Allocates heap memory using the runtime library’s ejcAlloc.
     ///
-    /// Allocates enough bytes to hold the element type of the pointer type `type`.
+    /// Allocates enough bytes to hold @c elementType.
     ///
     /// @note ejcAlloc expects the first element of the allocated type to be a pointer to the control
     /// block.
-    llvm::Value* alloc(llvm::PointerType *type);
+    llvm::Value* alloc(llvm::Type *elementType);
     /// Allocates stack memory as replacement for a heap memory allocation as performed by alloc().
     ///
     /// In order to ensure compatibility with the runtime library’s retain and release functions, additional bytes
@@ -157,9 +157,9 @@ public:
     ///
     /// @note Like ejcAlloc, this function expects the first element of the allocated type to be a pointer to the
     /// control block.
-    llvm::Value* stackAlloc(llvm::PointerType *type);
+    llvm::Value* stackAlloc(llvm::Type *elementType);
 
-    llvm::Value* managableGetValuePtr(llvm::Value *managablePtr);
+    llvm::Value* managableGetValuePtr(llvm::Value *managablePtr, llvm::StructType *managableType);
 
     void release(llvm::Value *value, const Type &type);
     /// Like release() but the value to be released is always provided as a pointer. If isManagedByReference() returns

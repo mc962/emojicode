@@ -63,6 +63,7 @@ public:
     llvm::StructType* classInfo() const { return classInfoType_; }
     llvm::StructType* protocolConformance() const { return protocolsTable_; }
     llvm::PointerType* someobject() const { return someobjectPtr_; }
+    llvm::StructType* someobjectStruct() const { return someobjectStructType_; }
     llvm::FunctionType* boxRetainRelease() const { return boxRetainRelease_; }
     llvm::FunctionType* captureDeinit() const { return captureDeinit_; }
     llvm::StructType* protocolConformanceEntry() const { return protocolConformanceEntry_; }
@@ -94,6 +95,13 @@ public:
     llvm::MDNode* tbaaNodeFor(const Type &type, bool classAsStruct);
     bool shouldAddTbaa(const Type &loadStoreType) const;
 
+    /// @returns The struct type (not pointer-to-struct) for dereferenceable types: class, value type, someobject,
+    ///          or reference types. Used when opaque pointers prevent recovering the pointee type.
+    llvm::StructType* llvmStructTypeFor(const Type &type);
+
+    /// @returns The type of a generic arguments store field for the given callee type.
+    llvm::Type* genericArgsStore(const Type &calleeType);
+
     ~LLVMTypeHelper();
 
 private:
@@ -105,6 +113,7 @@ private:
     llvm::StructType *typeDescription_;
     llvm::StructType *runTimeTypeInfo_;
     llvm::PointerType *someobjectPtr_;
+    llvm::StructType *someobjectStructType_;
     llvm::FunctionType *boxRetainRelease_;
     llvm::FunctionType *captureDeinit_;
     llvm::StructType *protocolConformanceEntry_;
@@ -123,8 +132,6 @@ private:
     llvm::Type *typeForOrdinaryType(const Type &type);
 
     llvm::Type* llvmTypeForTypeDefinition(const Type &type);
-
-    llvm::Type* genericArgsStore(const Type &calleeType);
 };
 
 }  // namespace EmojicodeCompiler

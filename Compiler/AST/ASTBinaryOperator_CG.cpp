@@ -18,6 +18,20 @@ Value* ASTBinaryOperator::generate(FunctionCodeGenerator *fg) const {
     }
 
     if (builtIn_ != BuiltInType::None) {
+        // IsNoValueLeft/Right only need one side; avoid generating the other (which may be a
+        // 🤷 no-value literal whose type is Optional<NoReturn>, producing invalid IR).
+        if (builtIn_ == BuiltInType::IsNoValueLeft) {
+            auto left = left_->generate(fg);
+            return left_->expressionType().storageType() == StorageType::Box
+                    ? fg->buildHasNoValueBox(left)
+                    : fg->buildOptionalHasNoValue(left, left_->expressionType());
+        }
+        if (builtIn_ == BuiltInType::IsNoValueRight) {
+            auto right = right_->generate(fg);
+            return right_->expressionType().storageType() == StorageType::Box
+                    ? fg->buildHasNoValueBox(right)
+                    : fg->buildOptionalHasNoValue(right, right_->expressionType());
+        }
         auto left = left_->generate(fg);
         auto right = right_->generate(fg);
         switch (builtIn_) {
@@ -71,14 +85,6 @@ Value* ASTBinaryOperator::generate(FunctionCodeGenerator *fg) const {
                 return fg->builder().CreateAnd(left, right);
             case BuiltInType::Equal:
                 return fg->builder().CreateICmpEQ(left, right);
-            case BuiltInType::IsNoValueLeft:
-                return left_->expressionType().storageType() == StorageType::Box
-                        ? fg->buildHasNoValueBox(left)
-                        : fg->buildOptionalHasNoValue(left, left_->expressionType());
-            case BuiltInType::IsNoValueRight:
-                return right_->expressionType().storageType() == StorageType::Box
-                        ? fg->buildHasNoValueBox(right)
-                        : fg->buildOptionalHasNoValue(right, right_->expressionType());
             default:
                 break;
         }

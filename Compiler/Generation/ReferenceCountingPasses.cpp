@@ -76,8 +76,9 @@ void LocalReferenceCountingPass::transformMemoryInst(llvm::CallInst *callInst) {
     }
     else if (callInst->getCalledFunction() == runTime_->retain()) {
         llvm::IRBuilder<> builder(callInst);
-        auto count = builder.CreateConstInBoundsGEP2_32(alloca->getType()->getElementType(), alloca, 0, 0);
-        auto store = builder.CreateStore(builder.CreateAdd(builder.getInt64(1), builder.CreateLoad(count->getType()->getPointerElementType(), count)), count);
+        auto allocaType = llvm::cast<llvm::StructType>(alloca->getAllocatedType());
+        auto count = builder.CreateConstInBoundsGEP2_32(allocaType, alloca, 0, 0);
+        auto store = builder.CreateStore(builder.CreateAdd(builder.getInt64(1), builder.CreateLoad(allocaType->getElementType(0), count)), count);
         callInst->replaceAllUsesWith(store);
         modified_ = true;
     }

@@ -76,11 +76,15 @@ llvm::Value* TypeDescriptionGenerator::extractTypeDescriptionPtr() {
         return fg_->genericArgsPtr();
     }
     auto gaptrPtr77 = fg_->genericArgsPtr();
-    auto ptr = fg_->builder().CreateLoad(gaptrPtr77->getType()->getPointerElementType(), gaptrPtr77);
+    auto gasType = fg_->typeHelper().genericArgsStore(fg_->calleeType());
+    auto ptr = fg_->builder().CreateLoad(gasType, gaptrPtr77);
     if (fg_->calleeType().is<TypeType::Class>()) {
+        // gasType is {typeDescription_*, i1}; extract field 0 to get typeDescription_*
         return fg_->builder().CreateExtractValue(ptr, 0);
     }
-    return fg_->builder().CreateConstInBoundsGEP2_32(ptr->getType()->getPointerElementType(), ptr, 0, 1);
+    // For ValueType: gasType is managable(typeDescription_)* — ptr is already the managable ptr
+    auto mngType = fg_->typeHelper().managable(fg_->typeHelper().typeDescription());
+    return fg_->builder().CreateConstInBoundsGEP2_32(mngType, ptr, 0, 1);
 }
 
 void TypeDescriptionGenerator::addDynamic(llvm::Value *gargs, size_t index) {
@@ -126,27 +130,26 @@ llvm::Value* TypeDescriptionGenerator::finish() {
     llvm::Value *current, *alloc;
     auto typeDesc = fg_->typeHelper().typeDescription();
     if (user_ == User::Function) {
-        stack_ = fg_->builder().CreateIntrinsic(llvm::Intrinsic::stacksave, {}, {});
+        stack_ = fg_->builder().CreateStackSave();
         current = alloc = fg_->builder().CreateAlloca(typeDesc, size);
     }
     else {
         auto allocSize = fg_->builder().CreateMul(fg_->sizeOf(typeDesc), size);
         if (user_ == User::Class) {
-            current = alloc = fg_->builder().CreateBitCast(fg_->builder().CreateCall(fg_->generator()->runTime().malloc(), allocSize), typeDesc->getPointerTo());
+            current = alloc = fg_->builder().CreateCall(fg_->generator()->runTime().malloc(), allocSize);
         }
         else {
-            auto size = fg_->builder().CreateAdd(fg_->sizeOf(llvm::Type::getInt8PtrTy(fg_->ctx())), allocSize);
-            auto allocUncasted = fg_->builder().CreateCall(fg_->generator()->runTime().alloc(), size);
-            auto type = fg_->typeHelper().managable(fg_->typeHelper().typeDescription());
-            alloc = fg_->builder().CreateBitCast(allocUncasted, type->getPointerTo());
-            current = fg_->builder().CreateConstInBoundsGEP2_32(type, alloc, 0, 1);
+            auto mngType = fg_->typeHelper().managable(fg_->typeHelper().typeDescription());
+            auto size = fg_->builder().CreateAdd(fg_->sizeOf(llvm::PointerType::getUnqual(fg_->ctx())), allocSize);
+            alloc = fg_->builder().CreateCall(fg_->generator()->runTime().alloc(), size);
+            current = fg_->builder().CreateConstInBoundsGEP2_32(mngType, alloc, 0, 1);
         }
     }
 
     for (auto &tdv : types_) {
         if (tdv.isCopy()) {
             fg_->builder().CreateMemCpy(current, llvm::MaybeAlign(), tdv.from, llvm::MaybeAlign(), fg_->builder().CreateMul(fg_->sizeOf(typeDesc), tdv.size));
-            current = fg_->builder().CreateInBoundsGEP(current->getType()->getPointerElementType(), current, tdv.size);
+            current = fg_->builder().CreateInBoundsGEP(typeDesc, current, tdv.size);
         }
         else {
             fg_->builder().CreateStore(tdv.concrete, current);
@@ -154,8 +157,9 @@ llvm::Value* TypeDescriptionGenerator::finish() {
         }
     }
     if (user_ == User::Class) {
-        auto sct = llvm::ConstantStruct::getAnon({ llvm::UndefValue::get(typeDesc->getPointerTo()),
-            llvm::ConstantInt::getFalse(fg_->ctx()) });;
+        auto ptrTy = llvm::PointerType::getUnqual(fg_->ctx());
+        auto sct = llvm::ConstantStruct::getAnon({ llvm::UndefValue::get(ptrTy),
+            llvm::ConstantInt::getFalse(fg_->ctx()) });
         return fg_->builder().CreateInsertValue(sct, alloc, { 0 });
     }
     return alloc;
@@ -178,8 +182,7 @@ llvm::Value* TypeDescriptionGenerator::finishStatic() {
     var->setUnnamedAddr(llvm::GlobalVariable::UnnamedAddr::Global);
 
     if (user_ == User::ValueTypeOrValue) {
-        auto mng = fg_->typeHelper().managable(fg_->typeHelper().typeDescription())->getPointerTo();
-        return fg_->builder().CreateBitCast(var, mng);
+        return fg_->builder().CreateBitCast(var, llvm::PointerType::getUnqual(fg_->ctx()));
     }
     auto gep = buildConstant00Gep(type, var, fg_->ctx());
     if (user_ == User::Class) {
@@ -191,7 +194,7 @@ llvm::Value* TypeDescriptionGenerator::finishStatic() {
 void TypeDescriptionGenerator::restoreStack() {
     assert(user_ == User::Function);
     if (stack_ != nullptr) {
-        fg_->builder().CreateIntrinsic(llvm::Intrinsic::stackrestore, {}, stack_);
+        fg_->builder().CreateStackRestore(stack_);
     }
 }
 

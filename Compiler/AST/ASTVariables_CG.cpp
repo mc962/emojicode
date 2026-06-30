@@ -23,14 +23,14 @@ Value* AccessesAnyVariable::instanceVariablePointer(FunctionCodeGenerator *fg) c
 Value* AccessesAnyVariable::managementValue(FunctionCodeGenerator *fg) const {
     if (inInstanceScope()) {
         llvm::Value *objectPointer = instanceVariablePointer(fg);
-        if (!fg->isManagedByReference(variableType_)) {
-            objectPointer = fg->builder().CreateLoad(objectPointer->getType()->getPointerElementType(), objectPointer);
+        if (!fg->isManagedByReference(variableType())) {
+            objectPointer = fg->builder().CreateLoad(fg->typeHelper().llvmTypeFor(variableType()), objectPointer);
         }
         return objectPointer;
     }
 
     auto var = fg->scoper().getVariable(id());
-    return fg->isManagedByReference(variableType_) ? var : fg->builder().CreateLoad(var->getType()->getPointerElementType(), var);
+    return fg->isManagedByReference(variableType()) ? var : fg->builder().CreateLoad(fg->typeHelper().llvmTypeFor(variableType()), var);
 }
 
 void AccessesAnyVariable::release(FunctionCodeGenerator *fg) const {
@@ -51,7 +51,7 @@ Value* ASTGetVariable::generate(FunctionCodeGenerator *fg) const {
         if (reference_) {
             return ptr;
         }
-        auto val = fg->builder().CreateLoad(ptr->getType()->getPointerElementType(), ptr);
+        auto val = fg->builder().CreateLoad(fg->typeHelper().llvmTypeFor(expressionType()), ptr);
         setTbaaMetadata(fg, val);
         if (expressionType().isManaged()) {
             fg->retain(fg->isManagedByReference(expressionType()) ? ptr : val, expressionType());
@@ -67,7 +67,7 @@ Value* ASTGetVariable::generate(FunctionCodeGenerator *fg) const {
         return localVariable;
     }
 
-    auto val = fg->builder().CreateLoad(localVariable->getType()->getPointerElementType(), localVariable);
+    auto val = fg->builder().CreateLoad(fg->typeHelper().llvmTypeFor(expressionType()), localVariable);
     setTbaaMetadata(fg, val);
     if (!returned_ && !isTemporary() && expressionType().isManaged()) {
         fg->retain(fg->isManagedByReference(expressionType()) ? localVariable : val, expressionType());
@@ -129,13 +129,13 @@ Value* ASTIsOnlyReference::generate(FunctionCodeGenerator *fg) const {
     Value *val;
     if (inInstanceScope()) {
         auto ivp = instanceVariablePointer(fg);
-        val = fg->builder().CreateLoad(ivp->getType()->getPointerElementType(), ivp);
+        val = fg->builder().CreateLoad(fg->typeHelper().llvmTypeFor(variableType()), ivp);
     }
     else {
         auto &localVariable = fg->scoper().getVariable(id());
-        val = fg->builder().CreateLoad(localVariable->getType()->getPointerElementType(), localVariable);
+        val = fg->builder().CreateLoad(fg->typeHelper().llvmTypeFor(variableType()), localVariable);
     }
-    auto ptr = fg->builder().CreateBitCast(val, llvm::Type::getInt8PtrTy(fg->ctx()));
+    auto ptr = fg->builder().CreateBitCast(val, llvm::PointerType::getUnqual(fg->ctx()));
     return fg->builder().CreateCall(fg->generator()->runTime().isOnlyReference(), ptr);
 }
 

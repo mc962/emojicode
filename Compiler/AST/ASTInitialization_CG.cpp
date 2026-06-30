@@ -72,14 +72,14 @@ Value* ASTInitialization::generateInitValueType(FunctionCodeGenerator *fg) const
     CallCodeGenerator(fg, CallType::StaticDispatch)
             .generate(destination, typeExpr_->expressionType(), args_, initializer_, errorPointer(), suppl);
     handleResult(fg, nullptr, destination);
-    return vtDestination_ == nullptr ? fg->builder().CreateLoad(destination->getType()->getPointerElementType(), destination) : nullptr;
+    return vtDestination_ == nullptr ? fg->builder().CreateLoad(fg->typeHelper().llvmTypeFor(typeExpr_->expressionType()), destination) : nullptr;
 }
 
 Value* ASTInitialization::initObject(FunctionCodeGenerator *fg, const ASTArguments &args, Function *function,
                                      const Type &type, llvm::Value *errorPointer, bool stackInit,
                                      llvm::Value *gArgsDescs) {
-    auto llvmType = llvm::dyn_cast<llvm::PointerType>(fg->typeHelper().llvmTypeFor(type));
-    auto obj = stackInit ? fg->stackAlloc(llvmType) : fg->alloc(llvmType);
+    auto elementType = fg->typeHelper().llvmStructTypeFor(type);
+    auto obj = stackInit ? fg->stackAlloc(elementType) : fg->alloc(elementType);
     fg->builder().CreateStore(type.klass()->classInfo(), fg->buildGetClassInfoPtrFromObject(obj));
     auto suppl = gArgsDescs != nullptr ? std::vector<llvm::Value*> { gArgsDescs } : std::vector<llvm::Value*>();
     return CallCodeGenerator(fg, CallType::StaticDispatch).generate(obj, type, args, function, errorPointer, suppl);
@@ -87,7 +87,7 @@ Value* ASTInitialization::initObject(FunctionCodeGenerator *fg, const ASTArgumen
 
 Value* ASTInitialization::generateMemoryAllocation(FunctionCodeGenerator *fg) const {
     auto size = fg->builder().CreateAdd(args_.args()[0]->generate(fg),
-                                        fg->sizeOf(llvm::Type::getInt8PtrTy(fg->ctx())));
+                                        fg->sizeOf(llvm::PointerType::getUnqual(fg->ctx())));
     return fg->builder().CreateCall(fg->generator()->runTime().alloc(), size, "alloc");
 }
 

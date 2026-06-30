@@ -59,7 +59,7 @@ void ASTIf::generate(FunctionCodeGenerator *fg) const {
     }
 
     if (addAfter) {
-        function->getBasicBlockList().push_back(afterIfBlock);
+        afterIfBlock->insertInto(function);
         fg->builder().SetInsertPoint(afterIfBlock);
     }
 }
@@ -85,7 +85,7 @@ void ASTRepeatWhile::generate(FunctionCodeGenerator *fg) const {
         fg->builder().CreateBr(whileCondBlock);
     }
 
-    function->getBasicBlockList().push_back(afterBlock);
+    afterBlock->insertInto(function);
     fg->builder().SetInsertPoint(afterBlock);
 }
 
@@ -104,7 +104,7 @@ void ASTErrorHandler::generate(FunctionCodeGenerator *fg) const {
 
     fg->builder().SetInsertPoint(errorBlock);
     tom.releaseTemporaryObjects(fg, false, value_->producesTemporaryObject());
-    fg->setVariable(errorVar_, fg->builder().CreateLoad(errorDest->getType()->getPointerElementType(), errorDest));
+    fg->setVariable(errorVar_, fg->builder().CreateLoad(llvm::PointerType::getUnqual(fg->ctx()), errorDest));
     errorBlock_.generate(fg);
     if (!errorBlock_.returnedCertainly()) {
         fg->builder().CreateBr(afterBlock);
@@ -121,7 +121,7 @@ void ASTErrorHandler::generate(FunctionCodeGenerator *fg) const {
     }
 
     if (!errorBlock_.returnedCertainly() || !valueBlock_.returnedCertainly()) {
-        function->getBasicBlockList().push_back(afterBlock);
+        afterBlock->insertInto(function);
         fg->builder().SetInsertPoint(afterBlock);
     }
 }

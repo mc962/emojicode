@@ -124,7 +124,7 @@ Value* ASTMethod::generate(FunctionCodeGenerator *fg) const {
 }
 
 Value* ASTMethod::buildAddOffsetAddress(FunctionCodeGenerator *fg, llvm::Value *memory, llvm::Value *offset) const {
-    auto addOffset = fg->builder().CreateAdd(offset, fg->sizeOf(llvm::Type::getInt8PtrTy(fg->ctx())));
+    auto addOffset = fg->builder().CreateAdd(offset, fg->sizeOf(llvm::PointerType::getUnqual(fg->ctx())));
     return fg->builder().CreateGEP(llvm::Type::getInt8Ty(fg->ctx()), memory, addOffset);
 }
 

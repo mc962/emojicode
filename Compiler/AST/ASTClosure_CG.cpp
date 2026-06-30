@@ -37,7 +37,7 @@ Value* ASTClosure::generate(FunctionCodeGenerator *fg) const {
 
     auto alloc = storeCapturedVariables(fg, capture);
     auto i8ptr = fg->builder().CreateBitCast(closure_->unspecificReification().function,
-                                             llvm::Type::getInt8PtrTy(fg->ctx()));
+                                             llvm::PointerType::getUnqual(fg->ctx()));
     auto callable = fg->builder().CreateInsertValue(llvm::UndefValue::get(fg->typeHelper().callable()), i8ptr, 0);
     return handleResult(fg, fg->builder().CreateInsertValue(callable, alloc, 1));
 }
@@ -52,7 +52,7 @@ llvm::Value* ASTClosure::createDeinit(CodeGenerator *cg, const Capture &capture)
     fg.createEntry();
 
     if (isEscaping_) {
-        auto captures = fg.builder().CreateBitCast(deinit->args().begin(), capture.type->getPointerTo());
+        auto captures = deinit->args().begin();
 
         auto i = 2;
         if (capture.capturesSelf()) {
@@ -92,7 +92,7 @@ llvm::Value* ASTClosure::storeCapturedVariables(FunctionCodeGenerator *fg, const
             if (capturedVar.type.isManaged() && fg->isManagedByReference(capturedVar.type)) {
                 fg->retain(variable, capturedVar.type);
             }
-            value = fg->builder().CreateLoad(variable->getType()->getPointerElementType(), variable);
+            value = fg->builder().CreateLoad(fg->typeHelper().llvmTypeFor(capturedVar.type), variable);
             if (capturedVar.type.isManaged() && !fg->isManagedByReference(capturedVar.type)) {
                 fg->retain(value, capturedVar.type);
             }
@@ -106,7 +106,7 @@ llvm::Value* ASTClosure::storeCapturedVariables(FunctionCodeGenerator *fg, const
             fg->builder().CreateStore(var, fg->builder().CreateConstInBoundsGEP2_32(capture.type, captures, 0, i++));
         }
     }
-    return fg->builder().CreateBitCast(captures, llvm::Type::getInt8PtrTy(fg->ctx()));
+    return fg->builder().CreateBitCast(captures, llvm::PointerType::getUnqual(fg->ctx()));
 }
 
 llvm::Function *ASTCallableBox::kRelease = nullptr;
@@ -119,10 +119,8 @@ llvm::Function* ASTCallableBox::getRelease(CodeGenerator *cg) {
     FunctionCodeGenerator fg(kRelease, cg, std::make_unique<TypeContext>());
     fg.createEntry();
 
-    auto capture = fg.builder().CreateBitCast(kRelease->args().begin(),
-                                              fg.typeHelper().callableBoxCapture()->getPointerTo());
-    auto callable = fg.builder().CreateConstInBoundsGEP2_32(fg.typeHelper().callableBoxCapture(), capture, 0, 2);
-    fg.release(fg.builder().CreateLoad(callable->getType()->getPointerElementType(), callable), Type(Type::noReturn(), {}, Type::noReturn()));
+    auto callable = fg.builder().CreateConstInBoundsGEP2_32(fg.typeHelper().callableBoxCapture(), kRelease->args().begin(), 0, 2);
+    fg.release(fg.builder().CreateLoad(fg.typeHelper().callable(), callable), Type(Type::noReturn(), {}, Type::noReturn()));
 
     fg.builder().CreateRetVoid();
     return kRelease;
@@ -143,9 +141,9 @@ llvm::Value* ASTCallableBox::generate(FunctionCodeGenerator *fg) const {
                               fg->builder().CreateConstInBoundsGEP2_32(captureIn, captures, 0, 1));
 
     auto bitcast = fg->builder().CreateBitCast(thunk_->unspecificReification().function,
-                                               llvm::Type::getInt8PtrTy(fg->ctx()));
+                                               llvm::PointerType::getUnqual(fg->ctx()));
     auto wcallable = fg->builder().CreateInsertValue(llvm::UndefValue::get(fg->typeHelper().callable()), bitcast, 0);
-    auto cp = fg->builder().CreateBitCast(captures, llvm::Type::getInt8PtrTy(fg->ctx()));
+    auto cp = fg->builder().CreateBitCast(captures, llvm::PointerType::getUnqual(fg->ctx()));
     return handleResult(fg, fg->builder().CreateInsertValue(wcallable, cp, 1));
 }
 

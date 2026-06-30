@@ -23,6 +23,9 @@
 #include "RunTimeTypeInfoFlags.hpp"
 #include <algorithm>
 #include <llvm/IR/IRPrintingPasses.h>
+#include <llvm/Pass.h>
+#include <llvm/IR/Attributes.h>
+#include <llvm/Support/ModRef.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/MC/TargetRegistry.h>
@@ -51,9 +54,10 @@ CodeGenerator::CodeGenerator(Compiler *compiler, bool optimize)
     llvm::InitializeAllAsmParsers();
     llvm::InitializeAllAsmPrinters();
 
-    auto targetTriple = llvm::sys::getDefaultTargetTriple();
+    auto targetTripleStr = llvm::sys::getDefaultTargetTriple();
+    llvm::Triple targetTriple(targetTripleStr);
     std::string error;
-    auto target = llvm::TargetRegistry::lookupTarget(targetTriple, error);
+    auto target = llvm::TargetRegistry::lookupTarget(targetTripleStr, error);
 
     auto cpu = "generic";
     auto features = "";
@@ -113,18 +117,16 @@ void CodeGenerator::generate() {
 
 void CodeGenerator::emit(bool ir, const std::string &outPath) {
     llvm::legacy::PassManager pass;
-    pass.add(llvm::createVerifierPass(false));
 
     std::error_code errorCode;
     llvm::raw_fd_ostream dest(outPath, errorCode, llvm::sys::fs::OF_None);
 
     if (ir) {
         pass.add(llvm::createPromoteMemoryToRegisterPass());
-        pass.add(llvm::createStripDeadPrototypesPass());
         pass.add(llvm::createPrintModulePass(dest));
     }
     else {
-        auto fileType = llvm::CGFT_ObjectFile;
+        auto fileType = llvm::CodeGenFileType::ObjectFile;
         if (targetMachine_->addPassesToEmitFile(pass, dest, nullptr, fileType)) {
             throw std::domain_error("TargetMachine can't emit a file of this type");
         }
@@ -188,7 +190,7 @@ llvm::Function* CodeGenerator::createLlvmFunction(Function *function, Reificatio
             }
         }
         else if (!function->memoryFlowTypeForThis().isEscaping()) {
-            fn->addParamAttr(i, llvm::Attribute::NoCapture);
+            fn->addParamAttr(i, llvm::Attribute::getWithCaptureInfo(fn->getContext(), llvm::CaptureInfo::none()));
         }
 
         if (function->typeContext().calleeType().type() == TypeType::ValueType && !function->mutating()) {
@@ -214,13 +216,13 @@ llvm::Function* CodeGenerator::createLlvmFunction(Function *function, Reificatio
     }
     if (!function->genericParameters().empty() && dynamic_cast<Class*>(function->owner()) == nullptr) {
         fn->addParamAttr(i, llvm::Attribute::NonNull);
-        fn->addParamAttr(i, llvm::Attribute::NoCapture);
+        fn->addParamAttr(i, llvm::Attribute::getWithCaptureInfo(fn->getContext(), llvm::CaptureInfo::none()));
         fn->addParamAttr(i, llvm::Attribute::ReadOnly);
         i++;
     }
     if (function->errorProne()) {
         fn->addParamAttr(i, llvm::Attribute::NonNull);
-        fn->addParamAttr(i, llvm::Attribute::NoCapture);
+        fn->addParamAttr(i, llvm::Attribute::getWithCaptureInfo(fn->getContext(), llvm::CaptureInfo::none()));
         fn->addParamAttr(i, llvm::Attribute::NoAlias);
         i++;
     }
@@ -244,7 +246,7 @@ void CodeGenerator::declareLlvmFunction(Function *function) {
 
 void CodeGenerator::addParamAttrs(const Parameter &param, size_t index, llvm::Function *function) {
     if (!param.memoryFlowType.isEscaping() && param.type->type().type() == TypeType::Class) {
-        function->addParamAttr(index, llvm::Attribute::NoCapture);
+        function->addParamAttr(index, llvm::Attribute::getWithCaptureInfo(function->getContext(), llvm::CaptureInfo::none()));
     }
 
     addParamDereferenceable(param.type->type(), index, function, false);
@@ -252,8 +254,14 @@ void CodeGenerator::addParamAttrs(const Parameter &param, size_t index, llvm::Fu
 
 void CodeGenerator::addParamDereferenceable(const Type &type, size_t index, llvm::Function *function, bool ret) {
     if (typeHelper_.isDereferenceable(type)) {
-        auto llvmType = typeHelper_.llvmTypeFor(type);
-        auto elementType = llvm::dyn_cast<llvm::PointerType>(llvmType)->getPointerElementType();
+        llvm::Type *elementType;
+        if (type.isReference()) {
+            Type base = type;
+            base.setReference(false);
+            elementType = typeHelper_.llvmTypeFor(base);
+        } else {
+            elementType = typeHelper_.llvmStructTypeFor(type);
+        }
         if (ret) {
             function->addAttributeAtIndex(llvm::AttributeList::ReturnIndex,
                 llvm::Attribute::getWithDereferenceableBytes(function->getContext(), querySize(elementType)));
